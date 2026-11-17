@@ -22,6 +22,8 @@ const ONBOARDING_PHRASES = [
     file: path.join(ROOT, 'grokbot', 'BOT.md'),
     phrases: [
       'question widget card',
+      'begin onboarding automatically',
+      'explicitly start a fresh album flow',
       'Never ask how review takes should play',
       'made public on Suno',
       'public MP4',
@@ -47,6 +49,8 @@ const ONBOARDING_PHRASES = [
     file: path.join(ROOT, '.cursor', 'skills', 'start-here', 'SKILL.md'),
     phrases: [
       'question widget card',
+      'begin onboarding automatically',
+      'explicitly begin a fresh album flow',
       'Never ask how review takes should play',
       'made public on Suno',
       'public MP4',

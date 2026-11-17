@@ -54,8 +54,12 @@ describe('onboarding checkpoint', () => {
     const status = probeReadiness(root, runner(readyCommands));
     expect(status.cursor).toEqual({ installed: true, modelExecutionVerified: false });
     expect(status.suno.capabilitiesVerified).toBe(false);
-    expect(status.vercel).toEqual({ cliSignedIn: true, siteProvisioned: true });
-    expect(nextStep(status)).toContain('Suno connector');
+    expect(status.vercel).toEqual({
+      cliSignedIn: true,
+      siteProvisioned: true,
+      connectorVerified: false,
+    });
+    expect(nextStep(status)).toContain('Suno connector or Free browser');
   });
 
   it('keeps status idempotent and lets the owner return from Studio to Quick start', async () => {
@@ -121,7 +125,7 @@ describe('onboarding checkpoint', () => {
         ...unverifiedAccount,
         suno: { ...unverifiedAccount.suno, capabilitiesVerified: true },
       })
-    ).toContain('gh api user');
+    ).toContain('connector or gh');
   });
 
   it('rejects non-GitHub origins and accepts the signed-in owner over SSH', () => {
@@ -199,7 +203,7 @@ describe('onboarding checkpoint', () => {
       downloadVerified: false,
     });
     expect(nextStep(status)).toContain('preflight');
-    expect(nextStep(status)).toContain('Verify download capability before private review');
+    expect(nextStep(status)).toContain('Verify download capability before final export');
     const saved = JSON.parse(await readFile(path.join(root, '.album-onboarding.json'), 'utf8'));
     expect(saved.suno.capabilities).toEqual(['create', 'status', 'models', 'credits']);
   });
@@ -223,7 +227,7 @@ describe('onboarding checkpoint', () => {
     expect(stale.suno.capabilitiesVerified).toBe(false);
     expect(near.cursor.modelExecutionVerified).toBe(true);
     expect(stale.cursor.modelExecutionVerified).toBe(false);
-    expect(nextStep(stale)).toContain('Suno connector');
+    expect(nextStep(stale)).toContain('Suno connector or Free browser');
   });
 
   it('refuses incomplete capability claims and owner confirmation without a site', async () => {
@@ -237,5 +241,61 @@ describe('onboarding checkpoint', () => {
     ).toThrow('Usage');
     await rm(path.join(root, '.album-site.json'));
     expect(() => main(['confirm-owner-access'], root, run)).toThrow('provisioned site URL');
+  });
+
+  it('accepts freshly verified connectors without CLI login and invalidates changed resources', async () => {
+    await writeFile(
+      path.join(root, '.album-site.json'),
+      '{"siteUrl":"https://album.example","project":"owner-album"}'
+    );
+    const connectorOnly = runner({
+      'git remote get-url origin': readyCommands['git remote get-url origin'],
+      'git remote get-url kit': readyCommands['git remote get-url kit'],
+    });
+    main(['verify-github', 'owner', 'owner/album'], root, connectorOnly);
+    main(['verify-vercel', 'owner-album', 'https://album.example'], root, connectorOnly);
+    const ready = probeReadiness(root, connectorOnly);
+    expect(ready.github).toMatchObject({
+      signedIn: true,
+      account: 'owner',
+      albumRemote: true,
+      connectorVerified: true,
+    });
+    expect(ready.vercel).toMatchObject({
+      cliSignedIn: false,
+      siteProvisioned: true,
+      connectorVerified: true,
+    });
+
+    await writeFile(
+      path.join(root, '.album-site.json'),
+      '{"siteUrl":"https://different.example","project":"owner-album"}'
+    );
+    expect(probeReadiness(root, connectorOnly).vercel.siteProvisioned).toBe(false);
+    const changedRemote = runner({
+      'git remote get-url origin': { ready: true, output: 'https://github.com/other/album.git' },
+      'git remote get-url kit': readyCommands['git remote get-url kit'],
+    });
+    expect(probeReadiness(root, changedRemote).github.albumRemote).toBe(false);
+
+    expect(() => main(['verify-github', 'owner', 'other/album'], root, connectorOnly)).toThrow(
+      'Usage'
+    );
+    expect(() =>
+      main(['verify-vercel', 'owner-album', 'http://album.example'], root, connectorOnly)
+    ).toThrow('Usage');
+  });
+
+  it('accepts a verified Free browser without a credit-balance capability', () => {
+    const run = runner(readyCommands);
+    main(['verify-suno', 'browser', 'create', 'status', 'models'], root, run);
+    expect(probeReadiness(root, run).suno).toMatchObject({
+      method: 'browser',
+      capabilitiesVerified: true,
+      downloadVerified: false,
+    });
+    expect(() => main(['verify-suno', 'mcp', 'create', 'status', 'models'], root, run)).toThrow(
+      'Usage'
+    );
   });
 });
