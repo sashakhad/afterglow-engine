@@ -56,15 +56,22 @@ export function PassControls({
   return (
     <div className='space-y-3 pb-2'>
       <p className='text-muted-foreground text-sm leading-relaxed'>
-        {nextCut} {nextCut === 1 ? 'take has' : 'takes have'} a negative score and will be cut when
-        pass {currentRound + 1} starts. Positive scores carry forward; unscored and zero-score takes
-        stay. Parked takes stay under Possible renames.
+        {nextCut === 0
+          ? 'No takes will be cut'
+          : `${nextCut} ${nextCut === 1 ? 'take' : 'takes'} will be cut`}{' '}
+        when you start Pass {currentRound + 1}. Only negative scores are cut; everything else stays.
       </p>
       {reviewing ? (
         <div className='space-y-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3'>
           <p className='text-sm'>
-            Start pass {currentRound + 1} with {remaining - nextCut} of {remaining} current takes?{' '}
-            {unscored > 0 ? `${unscored} have no score yet.` : 'Every current take has a score.'}
+            Start Pass {currentRound + 1}?{' '}
+            {nextCut === 0
+              ? 'No takes will be cut'
+              : `${nextCut} ${nextCut === 1 ? 'take' : 'takes'} will be cut`}
+            ; {remaining - nextCut} will stay.
+            {unscored > 0
+              ? ` You can score ${unscored} ${unscored === 1 ? 'take' : 'takes'} first.`
+              : ''}
           </p>
           <div className='flex flex-wrap gap-2'>
             <Button
