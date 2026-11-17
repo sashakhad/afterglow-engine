@@ -867,9 +867,8 @@ export function AlbumPlayer({
               </Link>
             </div>
             <p className='text-muted-foreground text-sm'>
-              {passRemaining} takes in this pass · {unscored} without a score ·{' '}
-              {passSummary?.dropped ?? 0} dropped before this pass
-              {passSummary?.parked ? ` · ${passSummary.parked} parked` : ''}.
+              {passRemaining} {passRemaining === 1 ? 'take' : 'takes'} · {unscored} unscored
+              {passSummary?.parked ? ` · ${passSummary.parked} parked` : ''}
             </p>
             <PassControls
               currentRound={voteSnapshot.currentRound}
