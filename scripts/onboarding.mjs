@@ -6,7 +6,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const STATE_FILE = '.album-onboarding.json';
-const SUNO_REQUIRED_CAPABILITIES = ['create', 'status', 'models', 'credits'];
+const SUNO_REQUIRED_CAPABILITIES = ['create', 'status', 'models'];
 const SUNO_OPTIONAL_CAPABILITIES = ['download'];
 const FRESH_MS = 30 * 60 * 1000;
 
@@ -63,12 +63,9 @@ export function probeReadiness(root, run = commandResult, now = Date.now()) {
   const kit = run('git', ['remote', 'get-url', 'kit']);
   const originIdentity = origin.ready ? githubRemoteIdentity(origin.output) : null;
   const kitIdentity = kit.ready ? githubRemoteIdentity(kit.output) : null;
+  const originIsDistinct = Boolean(originIdentity && kitIdentity && originIdentity !== kitIdentity);
   const originOwnedByAccount = Boolean(
-    githubLogin &&
-    originIdentity &&
-    kitIdentity &&
-    originIdentity !== kitIdentity &&
-    originIdentity.split('/')[0] === githubLogin
+    githubLogin && originIsDistinct && originIdentity.split('/')[0] === githubLogin
   );
   const originRepo = originOwnedByAccount
     ? run('gh', [
@@ -84,7 +81,31 @@ export function probeReadiness(root, run = commandResult, now = Date.now()) {
   const sunoFresh = freshCheck(suno?.checkedAt, now);
   const sunoCapabilitiesVerified = Boolean(
     sunoFresh &&
-    SUNO_REQUIRED_CAPABILITIES.every(capability => suno?.capabilities?.includes(capability))
+    SUNO_REQUIRED_CAPABILITIES.every(capability => suno?.capabilities?.includes(capability)) &&
+    (suno?.method === 'browser' || suno?.capabilities?.includes('credits'))
+  );
+  // Connector checks are recorded only after a live connector operation. A CLI login
+  // is not required when the connector verified the same account and resource.
+  const connectorAccount = state.githubConnector?.account?.toLowerCase();
+  const connectorRepo = state.githubConnector?.repo?.toLowerCase();
+  const githubConnectorReady = Boolean(
+    freshCheck(state.githubConnector?.checkedAt, now) &&
+    originIsDistinct &&
+    connectorRepo === originIdentity &&
+    connectorAccount === originIdentity.split('/')[0]
+  );
+  const githubCliReady = Boolean(
+    originOwnedByAccount && originRepo?.ready && originRepo.output.toLowerCase() === originIdentity
+  );
+  const siteRecorded = Boolean(
+    typeof site?.siteUrl === 'string' && site.siteUrl.startsWith('https://')
+  );
+  const vercelConnectorReady = Boolean(
+    freshCheck(state.vercelConnector?.checkedAt, now) &&
+    siteRecorded &&
+    state.vercelConnector?.siteUrl === site.siteUrl &&
+    typeof site?.project === 'string' &&
+    state.vercelConnector?.project === site.project
   );
 
   return {
@@ -119,21 +140,19 @@ export function probeReadiness(root, run = commandResult, now = Date.now()) {
     vercel: {
       cliSignedIn: vercelSignedIn,
       siteProvisioned: Boolean(
-        vercelSignedIn &&
-        typeof project?.projectId === 'string' &&
-        project.projectId.length > 0 &&
-        typeof site?.siteUrl === 'string' &&
-        site.siteUrl.startsWith('https://')
+        vercelConnectorReady ||
+        (vercelSignedIn &&
+          typeof project?.projectId === 'string' &&
+          project.projectId.length > 0 &&
+          siteRecorded)
       ),
+      connectorVerified: vercelConnectorReady,
     },
     github: {
-      signedIn: githubSignedIn,
-      account: githubLogin,
-      albumRemote: Boolean(
-        originOwnedByAccount &&
-        originRepo?.ready &&
-        originRepo.output.toLowerCase() === originIdentity
-      ),
+      signedIn: githubSignedIn || githubConnectorReady,
+      account: githubConnectorReady ? connectorAccount : githubLogin,
+      albumRemote: githubCliReady || githubConnectorReady,
+      connectorVerified: githubConnectorReady,
     },
     ownerAccessConfirmed: Boolean(
       state.ownerAccess?.confirmedAt &&
@@ -148,30 +167,27 @@ export function nextStep(status) {
     return 'Collect the album name, genre, and track titles, then write album/album.json and album/BRIEF.md.';
   }
   if (!status.suno.capabilitiesVerified) {
-    return 'Check the signed-in Suno connector for create, status, models, and credits. Check download for private review or final export. Hand sign-in or a code to the owner if needed; then record the observed capabilities.';
+    return 'Check the signed-in Suno connector or Free browser for create, status, and models; check credits when the account exposes them. Record only capabilities observed in the account.';
   }
   if (!status.github.signedIn) {
-    return 'Sign in to GitHub, then make a user-owned album repository with distinct origin and kit remotes.';
+    return 'Connect GitHub, then verify the user-owned album repository and distinct origin and kit remotes.';
   }
   if (status.github.account === null) {
-    return 'Check the signed-in GitHub account with gh api user --hostname github.com --jq .login, then recheck the album remotes.';
+    return 'Verify the signed-in GitHub account through the connector or gh, then recheck the album remotes.';
   }
   if (!status.github.albumRemote) {
     return `Make origin a GitHub repository owned by ${status.github.account}, with kit pointing to a different GitHub repository.`;
   }
-  if (!status.vercel.cliSignedIn) {
-    return 'Ask the owner to finish Vercel sign-in, then recheck vercel whoami.';
-  }
   if (!status.vercel.siteProvisioned) {
-    return 'Run pnpm setup:site in the album checkout; resume after any Neon browser handoff.';
+    return 'Verify the Vercel project through the connector or CLI, then finish site setup and any Neon handoff.';
   }
   if (!status.ownerAccessConfirmed) {
-    return 'Open the site URL and confirm the home page plays. Then run pnpm onboarding confirm-owner-access.';
+    return 'Open the one-time owner link, confirm Compare takes opens, and check that the site plays. Then run pnpm onboarding confirm-owner-access.';
   }
   if (status.path === 'studio' && !status.cursor.modelExecutionVerified) {
     return 'Check Cursor installation and connected Project execution; record only an observed model, or use Quick start.';
   }
-  return `Run the Suno preflight and request the explicit round allowance before any paid generation.${status.suno.downloadVerified ? '' : ' Verify download capability before private review or final export.'}`;
+  return `Run the Suno preflight before generation and ask about cost only when the cost threshold requires it.${status.suno.downloadVerified ? '' : ' Verify download capability before final export.'}`;
 }
 
 function saveState(root, state) {
@@ -184,7 +200,7 @@ function printStatus(status) {
   const steps = [
     ['Album brief', status.album],
     ['Suno capabilities', status.suno.capabilitiesVerified],
-    ['GitHub remotes', status.github.signedIn && status.github.albumRemote],
+    ['GitHub remotes', status.github.albumRemote],
     ['Vercel site record', status.vercel.siteProvisioned],
     ['Owner access', status.ownerAccessConfirmed],
     ...(status.path === 'studio'
@@ -202,7 +218,10 @@ function printStatus(status) {
     `Suno: ${status.suno.capabilitiesVerified ? `capabilities checked via ${status.suno.method}; download ${status.suno.downloadVerified ? 'verified' : 'unverified'}` : 'account/connector capabilities unverified or stale'}`
   );
   console.log(
-    `Vercel: CLI ${status.vercel.cliSignedIn ? 'signed in' : 'sign-in needed'}; site ${status.vercel.siteProvisioned ? 'saved locally (check live URL)' : 'not verified'}`
+    `GitHub: ${status.github.connectorVerified ? 'connector verified' : status.github.signedIn ? 'CLI signed in' : 'not verified'}; album remote ${status.github.albumRemote ? 'verified' : 'pending'}`
+  );
+  console.log(
+    `Vercel: ${status.vercel.connectorVerified ? 'connector verified' : status.vercel.cliSignedIn ? 'CLI signed in' : 'not verified'}; site ${status.vercel.siteProvisioned ? 'saved locally (check live URL)' : 'not verified'}`
   );
   for (const [label, ready] of steps) console.log(`${ready ? '✓' : '○'} ${label}`);
   console.log(`Next: ${nextStep(status)}`);
@@ -216,18 +235,41 @@ export function main(argv = process.argv.slice(2), root = process.cwd(), run = c
     saveState(root, state);
   } else if (action === 'verify-suno') {
     const [method, ...capabilities] = args;
-    const allowed = [...SUNO_REQUIRED_CAPABILITIES, ...SUNO_OPTIONAL_CAPABILITIES];
+    const allowed = [...SUNO_REQUIRED_CAPABILITIES, 'credits', ...SUNO_OPTIONAL_CAPABILITIES];
     if (
       !['mcp', 'browser'].includes(method) ||
       !SUNO_REQUIRED_CAPABILITIES.every(capability => capabilities.includes(capability)) ||
+      (method === 'mcp' && !capabilities.includes('credits')) ||
       capabilities.some(capability => !allowed.includes(capability)) ||
       new Set(capabilities).size !== capabilities.length
     ) {
       throw new Error(
-        `Usage: pnpm onboarding verify-suno mcp|browser ${SUNO_REQUIRED_CAPABILITIES.join(' ')} [download]`
+        `Usage: pnpm onboarding verify-suno mcp ${SUNO_REQUIRED_CAPABILITIES.join(' ')} credits [download] | browser ${SUNO_REQUIRED_CAPABILITIES.join(' ')} [credits] [download]`
       );
     }
     state.suno = { method, capabilities, checkedAt: new Date().toISOString() };
+    saveState(root, state);
+  } else if (action === 'verify-github' && args.length === 2) {
+    const [account, repo] = args;
+    if (
+      !/^[a-z0-9-]+$/i.test(account) ||
+      githubRemoteIdentity(`https://github.com/${repo}`) !== repo.toLowerCase() ||
+      repo.split('/')[0].toLowerCase() !== account.toLowerCase()
+    ) {
+      throw new Error(
+        'Usage: pnpm onboarding verify-github <observed-account> <observed-owner/repo>'
+      );
+    }
+    state.githubConnector = { account, repo, checkedAt: new Date().toISOString() };
+    saveState(root, state);
+  } else if (action === 'verify-vercel' && args.length === 2) {
+    const [project, siteUrl] = args;
+    if (!/^[a-z0-9][a-z0-9-]*$/i.test(project) || !/^https:\/\/[^\s/]+(?:\/)?$/.test(siteUrl)) {
+      throw new Error(
+        'Usage: pnpm onboarding verify-vercel <observed-project> <observed-https-site-url>'
+      );
+    }
+    state.vercelConnector = { project, siteUrl, checkedAt: new Date().toISOString() };
     saveState(root, state);
   } else if (action === 'verify-cursor' && args.length === 1 && args[0].trim()) {
     state.cursor = { observedModel: args[0], checkedAt: new Date().toISOString() };
@@ -241,7 +283,7 @@ export function main(argv = process.argv.slice(2), root = process.cwd(), run = c
     saveState(root, state);
   } else if (action !== undefined && (action !== 'status' || args.length > 0)) {
     throw new Error(
-      'Usage: pnpm onboarding [status | path quick|studio | verify-suno mcp|browser create status models credits [download] | verify-cursor <observed-model> | confirm-owner-access]'
+      'Usage: pnpm onboarding [status | path quick|studio | verify-suno mcp create status models credits [download] | verify-suno browser create status models [credits] [download] | verify-github <account> <owner/repo> | verify-vercel <project> <site-url> | verify-cursor <observed-model> | confirm-owner-access]'
     );
   }
   const status = probeReadiness(root, run);
