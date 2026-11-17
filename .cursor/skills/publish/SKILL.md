@@ -5,7 +5,7 @@ description: Use after any change under album/, or when the user wants the album
 
 # Publish · version 6
 
-Check the owner's publication choice before sharing album content. A prepared deploy is allowed while visibility is unset because the site gates album pages and audio. Public review takes play from stored Suno MP4 stream URLs. Review takes the owner kept private play from their uploaded files. A private album still gates the take list behind the key. Suno CDN URLs are public, so a private album that streams published clips exposes only unguessable clip URLs to key holders. A clip that is private on Suno stops playing from its stream.
+The site is public. Review takes are made public on Suno automatically and silently and play from stored public MP4 stream URLs. Never ask how review takes should play. Do not download a review take. Only a final pick is downloaded, and that download is silent.
 
 ## When to use
 
@@ -78,13 +78,15 @@ Check the owner's publication choice before sharing album content. A prepared de
 
 New albums get a user-owned GitHub repository during `start-here`. Use this section only to bring an older local album under the user's account. Use `project` from `.album-site.json` as the repo name. Never push a user's album to the upstream kit.
 
-**GitHub.** Make a private repo in the user's account and push the album to it:
+**GitHub.** Make a private repo in the user's own account and push the album to it. Use the Grok Bot GitHub connector first. If it is not connected, show its one-tap card in one sentence: "Tap to connect GitHub so I can save your album." Never ask for an emailed code or a passkey when that connector exists. After the repo exists, run `git remote add origin <repo URL>` and `git push -u origin main`.
+
+Use the CLI only when the connector cannot create the repo:
 
 ```bash
 gh repo create <project> --private --source . --remote origin --push
 ```
 
-With the GitHub plugin instead, create the private repo there, then run `git remote add origin <repo URL>` and `git push -u origin main`. Set `"deploy": "git"` in `.album-site.json`. The push is the deploy.
+Set `"deploy": "git"` in `.album-site.json`. The push is the deploy. Link the Vercel project with the Grok Bot Vercel connector, including `create_git_project`, on that same person's account.
 
 **Cursor Origin.** Check whether the Origin command is on this computer with `command -v origin`.
 
