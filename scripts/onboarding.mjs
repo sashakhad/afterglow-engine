@@ -182,7 +182,7 @@ export function nextStep(status) {
     return 'Verify the Vercel project through the connector or CLI, then finish site setup and any Neon handoff.';
   }
   if (!status.ownerAccessConfirmed) {
-    return 'Open the site URL and confirm the home page plays. Then run pnpm onboarding confirm-owner-access.';
+    return 'Open the one-time owner link, confirm Compare takes opens, and check that the site plays. Then run pnpm onboarding confirm-owner-access.';
   }
   if (status.path === 'studio' && !status.cursor.modelExecutionVerified) {
     return 'Check Cursor installation and connected Project execution; record only an observed model, or use Quick start.';

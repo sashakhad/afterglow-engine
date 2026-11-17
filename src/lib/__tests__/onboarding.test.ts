@@ -190,7 +190,7 @@ describe('onboarding checkpoint', () => {
     expect(nextStep(status)).toContain('preflight');
     expect(nextStep(status)).not.toContain('Verify download capability');
     await writeFile(path.join(root, '.album-site.json'), '{"siteUrl":"https://other.example"}');
-    expect(nextStep(probeReadiness(root, run))).toContain('home page plays');
+    expect(nextStep(probeReadiness(root, run))).toContain('one-time owner link');
   });
 
   it('accepts public-streaming capabilities without a download check', async () => {
