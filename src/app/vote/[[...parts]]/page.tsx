@@ -73,6 +73,7 @@ export default async function VotePage({ params }: VotePageProps) {
         version={listener.version}
         votes={listener.votes}
         voter='listener'
+        signInHref='/key'
         awaitingReveal={listener.awaitingReveal}
         track={trackFromParts(trackSlug, config, listener.version)}
         initialTake={takeFromParts(trackSlug, versionSlug, takeSlug, config, listener.version)}
