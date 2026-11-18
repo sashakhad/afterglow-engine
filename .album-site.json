@@ -1,5 +1,5 @@
 {
-  "siteUrl": null,
+  "siteUrl": "https://afterglow-engine.vercel.app",
   "project": "afterglow-engine",
   "deploy": "git",
   "kitSource": "https://github.com/sashakhad/album-kit",
