@@ -1,8 +1,24 @@
 {
-  "title": "Untitled album",
+  "title": "Afterglow Engine",
   "artist": "",
-  "genre": "",
+  "genre": "melodic emotional EDM",
   "rule": "",
-  "sets": [{ "id": "v1", "name": "Bubu" }],
-  "tracks": []
+  "sets": [
+    {
+      "id": "v1",
+      "name": "Version 1"
+    }
+  ],
+  "tracks": [
+    {
+      "number": 1,
+      "title": "Afterglow Engine",
+      "slug": "afterglow-engine"
+    },
+    {
+      "number": 2,
+      "title": "Satellites Over Lisbon",
+      "slug": "satellites-over-lisbon"
+    }
+  ]
 }

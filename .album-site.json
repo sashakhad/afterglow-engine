@@ -1,0 +1,7 @@
+{
+  "siteUrl": null,
+  "project": "afterglow-engine",
+  "deploy": "git",
+  "kitSource": "https://github.com/sashakhad/album-kit",
+  "kitRevision": "e511a27ea19b8b165ef6cab051c486fc11f8892f"
+}
