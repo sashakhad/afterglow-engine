@@ -14,6 +14,8 @@ import type { AlbumTrack, AlbumVersion } from '@/lib/album/types';
 import { type VoteSnapshot } from '@/lib/votes/types';
 import { isOwner } from '@/lib/owner/auth';
 import { loadVariationTrackStatus } from '@/lib/variations/status';
+import { loadSettings } from '@/lib/settings/store';
+import { listenerJudgingView } from '@/lib/votes/listener-view';
 import { ownerJudgingView } from '@/lib/votes/owner-view';
 import { opaqueAudioId } from '@/lib/votes/blind';
 import { countBrowserListenerVotes } from '@/lib/votes/merge-ballot';
@@ -42,19 +44,50 @@ export default async function VotePage({ params }: VotePageProps) {
   }
 
   const [trackSlug, versionSlug, takeSlug] = parts;
-  const [
-    config,
-    { version, originalVersion, votes, blind, awaitingReveal, passSummary },
-    listenerVotesOnBrowser,
-    owner,
-    variationStatusByTrack,
-  ] = await Promise.all([
+  const [config, owner, settings, variationStatusByTrack] = await Promise.all([
     getListenConfig(),
-    ownerJudgingView(),
-    countBrowserListenerVotes(),
     isOwner(),
+    loadSettings(),
     loadVariationTrackStatus(),
   ]);
+  if (!owner) {
+    if (!settings.listenerVoting) {
+      return (
+        <main className='mx-auto max-w-xl space-y-4 px-6 py-16'>
+          <h1 className='text-2xl font-semibold'>Compare takes</h1>
+          <p className='text-muted-foreground text-sm leading-relaxed'>
+            The owner scores takes from the owner link. Listeners play the album on Listen.
+          </p>
+          <Link
+            href='/listen'
+            className='inline-flex min-h-11 items-center text-sm underline underline-offset-4'
+          >
+            Open Listen
+          </Link>
+        </main>
+      );
+    }
+    const listener = await listenerJudgingView(settings);
+    return (
+      <VoteMain
+        version={listener.version}
+        votes={listener.votes}
+        voter='listener'
+        awaitingReveal={listener.awaitingReveal}
+        track={trackFromParts(trackSlug, config, listener.version)}
+        initialTake={takeFromParts(trackSlug, versionSlug, takeSlug, config, listener.version)}
+        variationStatusByTrack={variationStatusByTrack}
+        bannerLine={bannerLine}
+        progress={progress}
+        roundNumber={progress.roundNumber}
+        {...(listener.blind ? { variationBlindRound: listener.votes.currentRound } : {})}
+      />
+    );
+  }
+  const [
+    { version, originalVersion, votes, blind, awaitingReveal, passSummary },
+    listenerVotesOnBrowser,
+  ] = await Promise.all([ownerJudgingView(), countBrowserListenerVotes()]);
   const listenChoices: Record<number, ListenChoice> = Object.fromEntries(
     config.tracks.map(item => {
       const original = trackByNumber(originalVersion, item.number);
@@ -224,4 +257,28 @@ function VoteMain({
 
 function trackByNumber(version: AlbumVersion, number: number): AlbumTrack | null {
   return version.tracks.find(track => track.number === number) ?? null;
+}
+
+function trackFromParts(
+  trackSlug: string | undefined,
+  config: { tracks: ReadonlyArray<{ slug: string; number: number }> },
+  version: AlbumVersion
+): AlbumTrack | null {
+  const configTrack = config.tracks.find(track => track.slug === trackSlug);
+  if (trackSlug === undefined) return null;
+  if (configTrack === undefined) return resolveTrack(trackSlug, version.tracks);
+  return trackByNumber(version, configTrack.number);
+}
+
+function takeFromParts(
+  trackSlug: string | undefined,
+  versionSlug: string | undefined,
+  takeSlug: string | undefined,
+  config: { tracks: ReadonlyArray<{ slug: string; number: number }> },
+  version: AlbumVersion
+): { label: string } | null {
+  const track = trackFromParts(trackSlug, config, version);
+  const voteLabel = parseTakeSegment(takeSlug);
+  if (track === null || versionSlug === undefined || voteLabel === null) return null;
+  return findTakeByVersionAndLabel(track, versionSlug, voteLabel);
 }

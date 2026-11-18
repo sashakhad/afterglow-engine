@@ -1383,7 +1383,9 @@ function TrackRow({
 }) {
   const ready = track.audioUrl !== null;
   const showTakePills = showTakes && track.takes.length > 0;
-  const takes = takesInLabelOrder(track.takes);
+  const takes = showVotes
+    ? takesInScoreOrder(track.takes, takeCounts)
+    : takesInLabelOrder(track.takes);
 
   return (
     <div data-track-row className={cn('@container min-w-0 px-4 py-4', isCurrent && 'bg-white/6')}>
@@ -1552,6 +1554,17 @@ function TakeScoreChips({
 
 function takesInLabelOrder(takes: readonly AlbumTake[]): AlbumTake[] {
   return [...takes].sort((left, right) => compareTakeLabel(left.label, right.label));
+}
+
+function takesInScoreOrder(
+  takes: readonly AlbumTake[],
+  counts: Record<string, number>
+): AlbumTake[] {
+  return takesInLabelOrder(takes).sort((left, right) => {
+    const delta = (counts[right.label] ?? 0) - (counts[left.label] ?? 0);
+    if (delta !== 0) return delta;
+    return compareTakeLabel(left.label, right.label);
+  });
 }
 
 function compareTakeLabel(left: string, right: string): number {

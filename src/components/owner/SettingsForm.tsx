@@ -8,6 +8,7 @@ import { Check, ChevronDown, Circle, Upload } from 'lucide-react';
 import { ShareControls } from '@/components/owner/ShareControls';
 import { Button } from '@/components/ui/button';
 import { formatNumber } from '@/lib/formatters';
+import { comparisonPreview, resolveLineup } from '@/lib/rounds/lineup';
 import {
   exportPreset,
   importPreset,
@@ -24,7 +25,7 @@ function lineupFromInput(value: string): string[] {
   const lineup: string[] = [];
   for (const part of value.split(',')) {
     const name = part.trim();
-    if (name.length === 0 || lineup.includes(name) || lineup.length >= 5) continue;
+    if (name.length === 0 || lineup.includes(name) || lineup.length >= 20) continue;
     lineup.push(name);
   }
   return lineup;
@@ -53,6 +54,9 @@ export function SettingsForm({ albumTitle, initial, lastSunoCheck, creditsReserv
   const [presetNotice, setPresetNotice] = useState('');
   const [customSunoModel, setCustomSunoModel] = useState(false);
   const [lineupText, setLineupText] = useState(initial.writerLineup.join(', '));
+  const [availableText, setAvailableText] = useState('');
+  const [swapFrom, setSwapFrom] = useState('');
+  const [swapTo, setSwapTo] = useState('');
   const patch = settingsChanges(saved, draft);
   const dirty = Object.keys(patch).length > 0;
   const models = [...new Set([...(lastSunoCheck?.models ?? []), draft.sunoModel])].filter(
@@ -72,6 +76,17 @@ export function SettingsForm({ albumTitle, initial, lastSunoCheck, creditsReserv
   function change<K extends keyof AlbumSettingsValue>(key: K, value: AlbumSettingsValue[K]) {
     setDraft(previous => ({ ...previous, [key]: value }));
     setError('');
+  }
+
+  function applyLineup(requestedText: string, availableSource: string) {
+    const requested = lineupFromInput(requestedText);
+    const available = lineupFromInput(availableSource);
+    change(
+      'writerLineup',
+      available.length === 0
+        ? requested.slice(0, 5)
+        : resolveLineup({ available, requested }).lineup
+    );
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -416,14 +431,7 @@ export function SettingsForm({ albumTitle, initial, lastSunoCheck, creditsReserv
                 </select>
               </Field>
               {draft.promptWriter === 'cursor' ? (
-                <Field
-                  label='Comparison'
-                  hint={
-                    draft.comparison === 'originals-plus-combined' && draft.writerLineup.length > 0
-                      ? `${formatNumber(draft.writerLineup.length + 1)} prompts and ${formatNumber((draft.writerLineup.length + 1) * 2)} takes per track when each Create returns two recordings.`
-                      : 'Originals plus Combined, or a curated suite of prompt variations.'
-                  }
-                >
+                <Field label='Comparison' hint={comparisonHint(draft)}>
                   <select
                     value={draft.comparison}
                     onChange={event =>
@@ -440,21 +448,62 @@ export function SettingsForm({ albumTitle, initial, lastSunoCheck, creditsReserv
                 </Field>
               ) : null}
               {draft.promptWriter === 'cursor' ? (
-                <Field
-                  label='Writer lineup'
-                  hint='Up to five models this Cursor project can run. Swap or remove names here.'
-                >
-                  <input
-                    value={lineupText}
-                    maxLength={600}
-                    onChange={event => {
-                      setLineupText(event.target.value);
-                      change('writerLineup', lineupFromInput(event.target.value));
-                    }}
-                    className={inputClass}
-                    placeholder='Model A, Model B'
-                  />
-                </Field>
+                <WriterLineupPicker
+                  availableText={availableText}
+                  lineupText={lineupText}
+                  savedLineup={draft.writerLineup}
+                  swapFrom={swapFrom}
+                  swapTo={swapTo}
+                  showPicker={draft.comparison === 'originals-plus-combined'}
+                  onAvailableText={value => {
+                    setAvailableText(value);
+                    applyLineup(lineupText, value);
+                  }}
+                  onLineupText={value => {
+                    setLineupText(value);
+                    applyLineup(value, availableText);
+                  }}
+                  onSwapFrom={setSwapFrom}
+                  onSwapTo={setSwapTo}
+                  onUseAvailable={() => {
+                    const lineup = resolveLineup({
+                      available: lineupFromInput(availableText),
+                    }).lineup;
+                    setLineupText(lineup.join(', '));
+                    change('writerLineup', lineup);
+                  }}
+                  onSwap={() => {
+                    if (swapFrom.length === 0 || swapTo.length === 0) return;
+                    const next = resolveLineup({
+                      available: lineupFromInput(availableText),
+                      requested: lineupFromInput(lineupText),
+                      swap: { from: swapFrom, to: swapTo },
+                    }).lineup;
+                    setLineupText(next.join(', '));
+                    change('writerLineup', next);
+                    setSwapFrom('');
+                    setSwapTo('');
+                  }}
+                  onRemove={name => {
+                    const requested = lineupFromInput(lineupText).filter(item => item !== name);
+                    const available = lineupFromInput(availableText);
+                    const next =
+                      available.length === 0
+                        ? requested.slice(0, 5)
+                        : resolveLineup({ available, requested }).lineup;
+                    setLineupText(next.join(', '));
+                    change('writerLineup', next);
+                  }}
+                  onReplace={(unavailable, replacement) => {
+                    const next = resolveLineup({
+                      available: lineupFromInput(availableText),
+                      requested: lineupFromInput(lineupText),
+                      swap: { from: unavailable, to: replacement },
+                    }).lineup;
+                    setLineupText(next.join(', '));
+                    change('writerLineup', next);
+                  }}
+                />
               ) : null}
               {draft.promptWriter === 'cursor' ? (
                 <Field
@@ -650,6 +699,217 @@ function Disclosure({
         <div className='space-y-5 border-t border-white/10 p-4 sm:p-6'>{children}</div>
       ) : null}
     </details>
+  );
+}
+
+function comparisonHint(draft: AlbumSettingsValue): string {
+  if (draft.comparison === 'curated') {
+    const preview = comparisonPreview({
+      writers: draft.promptVariations,
+      outputsPerGeneration: 2,
+      generationsPerPrompt: draft.generationsPerPrompt,
+      includeCombined: false,
+    });
+    return `Curated suite: ${formatNumber(preview.prompts)} prompts and ${formatNumber(preview.takes)} takes per track when each Create returns two recordings.`;
+  }
+  if (draft.comparison === 'originals-plus-combined' && draft.writerLineup.length > 0) {
+    const preview = comparisonPreview({
+      writers: draft.writerLineup.length,
+      outputsPerGeneration: 2,
+      generationsPerPrompt: draft.generationsPerPrompt,
+    });
+    return `${formatNumber(preview.prompts)} prompts and ${formatNumber(preview.takes)} takes per track when each Create returns two recordings.`;
+  }
+  return 'Originals plus Combined, or a curated suite of prompt variations.';
+}
+
+function WriterLineupPicker({
+  availableText,
+  lineupText,
+  savedLineup,
+  swapFrom,
+  swapTo,
+  showPicker,
+  onAvailableText,
+  onLineupText,
+  onSwapFrom,
+  onSwapTo,
+  onUseAvailable,
+  onSwap,
+  onRemove,
+  onReplace,
+}: {
+  availableText: string;
+  lineupText: string;
+  savedLineup: readonly string[];
+  swapFrom: string;
+  swapTo: string;
+  showPicker: boolean;
+  onAvailableText: (value: string) => void;
+  onLineupText: (value: string) => void;
+  onSwapFrom: (value: string) => void;
+  onSwapTo: (value: string) => void;
+  onUseAvailable: () => void;
+  onSwap: () => void;
+  onRemove: (name: string) => void;
+  onReplace: (unavailable: string, replacement: string) => void;
+}) {
+  const available = lineupFromInput(availableText);
+  const requested = lineupFromInput(lineupText);
+  const resolved =
+    available.length === 0
+      ? { lineup: requested, unavailable: [] }
+      : resolveLineup({ available, requested });
+  const replacements = available.filter(name => !resolved.lineup.includes(name));
+  return (
+    <div className='space-y-4 sm:col-span-2'>
+      {showPicker ? (
+        <Field
+          label='Models this project can run'
+          hint='Up to five of these can write. A name that is not in this list cannot join the lineup.'
+        >
+          <input
+            value={availableText}
+            maxLength={600}
+            onChange={event => onAvailableText(event.target.value)}
+            className={inputClass}
+            placeholder='Opus, Soul, Grok, Sonnet, Fable'
+          />
+        </Field>
+      ) : null}
+      <Field
+        label='Writer lineup'
+        hint='Saving a name does not credit a model. A round accepts only writers with a verified run.'
+      >
+        <input
+          value={lineupText}
+          maxLength={600}
+          onChange={event => onLineupText(event.target.value)}
+          className={inputClass}
+          placeholder='Model A, Model B'
+        />
+      </Field>
+      {showPicker ? (
+        <div className='space-y-3'>
+          <button
+            type='button'
+            className='inline-flex min-h-11 items-center rounded-lg border border-white/15 px-3 text-sm'
+            onClick={onUseAvailable}
+            disabled={available.length === 0}
+          >
+            Use these writers
+          </button>
+          <p className='text-muted-foreground text-xs' data-saved-lineup>
+            Saved lineup: {savedLineup.length === 0 ? 'none' : savedLineup.join(', ')}
+          </p>
+          {resolved.lineup.length > 0 ? (
+            <div className='flex flex-wrap gap-2'>
+              {resolved.lineup.map(name => (
+                <button
+                  key={name}
+                  type='button'
+                  className='inline-flex min-h-11 items-center rounded-full border border-white/15 px-3 text-sm'
+                  onClick={() => onRemove(name)}
+                >
+                  Remove {name}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <div className='grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end'>
+            <Field label='Swap'>
+              <select
+                value={swapFrom}
+                onChange={event => onSwapFrom(event.target.value)}
+                className={inputClass}
+              >
+                <option value=''>Choose a writer</option>
+                {resolved.lineup.map(name => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label='With'>
+              <select
+                value={swapTo}
+                onChange={event => onSwapTo(event.target.value)}
+                className={inputClass}
+              >
+                <option value=''>Choose a replacement</option>
+                {replacements.map(name => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <button
+              type='button'
+              className='inline-flex min-h-11 items-center rounded-lg border border-white/15 px-3 text-sm'
+              onClick={onSwap}
+              disabled={swapFrom.length === 0 || swapTo.length === 0}
+            >
+              Swap writer
+            </button>
+          </div>
+          {resolved.unavailable.map(name => (
+            <UnavailableWriter
+              key={name}
+              name={name}
+              replacements={replacements}
+              onReplace={replacement => onReplace(name, replacement)}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function UnavailableWriter({
+  name,
+  replacements,
+  onReplace,
+}: {
+  name: string;
+  replacements: readonly string[];
+  onReplace: (replacement: string) => void;
+}) {
+  const [replacement, setReplacement] = useState(replacements[0] ?? '');
+  return (
+    <div className='space-y-2 rounded-lg border border-white/15 p-3'>
+      <p className='text-sm'>
+        {name} can&apos;t run. Pick a replacement before this lineup is saved.
+      </p>
+      {replacements.length === 0 ? (
+        <p className='text-muted-foreground text-xs'>No other available writer is left to use.</p>
+      ) : (
+        <div className='flex flex-wrap items-center gap-2'>
+          <select
+            aria-label={`Replacement for ${name}`}
+            value={replacement}
+            onChange={event => setReplacement(event.target.value)}
+            className={inputClass}
+          >
+            {replacements.map(option => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+          <button
+            type='button'
+            className='inline-flex min-h-11 items-center rounded-lg border border-white/15 px-3 text-sm'
+            onClick={() => onReplace(replacement)}
+            disabled={replacement.length === 0}
+          >
+            Replace {name}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
