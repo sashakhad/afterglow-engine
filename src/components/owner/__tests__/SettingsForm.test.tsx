@@ -66,6 +66,49 @@ describe('album settings', () => {
     expect(screen.queryByLabelText('Requested Suno model ID')).not.toBeInTheDocument();
   });
 
+  it('swaps, reduces, recovers an unavailable writer, and previews the take count', async () => {
+    render(
+      <SettingsForm
+        albumTitle='Album'
+        initial={{ ...DEFAULT_SETTINGS, promptWriter: 'cursor' }}
+        lastSunoCheck={null}
+      />
+    );
+    fireEvent.click(screen.getByText('Advanced music settings'));
+    fireEvent.change(await screen.findByLabelText('Comparison'), {
+      target: { value: 'originals-plus-combined' },
+    });
+    fireEvent.change(screen.getByLabelText('Models this project can run'), {
+      target: { value: 'Opus, Soul, Grok, Sonnet, Fable, Haiku' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Use these writers' }));
+    expect(screen.getByText(/6 prompts and 12 takes/)).toBeInTheDocument();
+    expect(screen.getByText('Saved lineup: Opus, Soul, Grok, Sonnet, Fable')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Swap'), { target: { value: 'Fable' } });
+    fireEvent.change(screen.getByLabelText('With'), { target: { value: 'Haiku' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Swap writer' }));
+    expect(screen.getByText('Saved lineup: Opus, Soul, Grok, Sonnet, Haiku')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Soul' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Grok' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Haiku' }));
+    expect(screen.getByText('Saved lineup: Opus, Sonnet')).toBeInTheDocument();
+    expect(screen.getByText(/3 prompts and 6 takes/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Writer lineup'), {
+      target: { value: 'Opus, Retired Model' },
+    });
+    expect(screen.getByText(/Retired Model can't run/)).toBeInTheDocument();
+    expect(screen.getByText('Saved lineup: Opus')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Replace Retired Model' }));
+    expect(screen.getByText('Saved lineup: Opus, Soul')).toBeInTheDocument();
+    expect(screen.queryByText(/Retired Model can't run/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Comparison'), { target: { value: 'curated' } });
+    expect(screen.getByText(/Curated suite: 5 prompts and 10 takes/)).toBeInTheDocument();
+  });
+
   it('saves the recommended public review takes until the owner chooses private', async () => {
     const updated = { ...DEFAULT_SETTINGS, reviewTakes: 'private' as const };
     const fetch = vi.fn().mockResolvedValue(Response.json({ resolved: updated }));

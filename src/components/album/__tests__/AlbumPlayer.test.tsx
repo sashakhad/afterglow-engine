@@ -851,7 +851,7 @@ describe('AlbumPlayer', () => {
     expect(screen.queryByRole('button', { name: /Show score controls/i })).not.toBeInTheDocument();
   });
 
-  it('keeps take chips in A–J order while Listen still starts on the highest score', async () => {
+  it('sorts owner take chips by score and keeps the selected take', async () => {
     const user = userEvent.setup();
     const labels = ['J', 'C', 'A', 'B'] as const;
     const track = {
@@ -904,7 +904,7 @@ describe('AlbumPlayer', () => {
         .map(button => button.textContent ?? '');
     }
 
-    expect(chipLabels()).toEqual(['A', 'B', 'C', 'J']);
+    expect(chipLabels()).toEqual(['J', 'A', 'B', 'C']);
     expect(within(card).getByRole('button', { name: 'Take J' })).toHaveAttribute(
       'aria-pressed',
       'true'
@@ -913,11 +913,12 @@ describe('AlbumPlayer', () => {
 
     await user.click(within(card).getByRole('button', { name: /Add one to take A of Track One/i }));
 
-    expect(chipLabels()).toEqual(['A', 'B', 'C', 'J']);
+    expect(chipLabels()).toEqual(['A', 'J', 'B', 'C']);
     expect(within(card).getByRole('button', { name: 'Take J' })).toHaveAttribute(
       'aria-pressed',
       'true'
     );
+    expect(screen.getByText('Score take J')).toBeInTheDocument();
   });
 });
 
